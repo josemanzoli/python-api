@@ -1,54 +1,37 @@
-import logging
-import os
-import sys
-import pika
+#!/usr/bin/env python
 import time
-import logging_json
-import uuid
+import json
+import sys
+from src.logger import setup_logger
+from src.rabbitmq import rabbitmq_service
 
-logHandler = logging.StreamHandler(sys.stdout)
+logger = setup_logger("consumer-logger")
 
-formatter = logging_json.JSONFormatter(fields={"level": "levelname", 
-                                    "loggerName": "name", 
-                                    "processName": "processName",
-                                    "processID": "process", 
-                                    "threadName": "threadName", 
-                                    "threadID": "thread",
-                                    "lineNumber" : "lineno",
-                                    "timestamp": "asctime"})
-logHandler.setFormatter(formatter)
+def message_callback(ch, method, properties, body):
+    """Callback processador de mensagens assíncronas do RabbitMQ."""
+    try:
+        decoded_body = body.decode('utf-8')
+        logger.info(
+            "New Message consumed",
+            extra={"messageReceived": decoded_body}
+        )
+        print(f" [x] Processing: {decoded_body}")
+        
+        # Simula processamento lento
+        time.sleep(4)
+        
+        # Confirma o recebimento apenas após processado com sucesso
+        ch.basic_ack(delivery_tag=method.delivery_tag)
+    except Exception as e:
+        logger.error(f"Error handling message: {str(e)}")
+        # Em cenários reais, enviar para uma DLQ invés de apenas rejeitar
+        ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
 
-logger = logging.getLogger("consumer-logger")
-logger.addHandler(logHandler)
-logger.setLevel(logging.INFO)
-
-RABBITMQ_USER = os.getenv("RABBITMQ_USER", "admin")
-RABBITMQ_PASSWORD = os.getenv("RABBITMQ_PASSWORD", "passw123")
-RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "localhost")
-
-credentials = pika.PlainCredentials(username=RABBITMQ_USER, password=RABBITMQ_PASSWORD)
-connection = pika.BlockingConnection(
-    pika.ConnectionParameters(host=RABBITMQ_HOST, port=5672, credentials=credentials))
-channel = connection.channel()
-
-channel.exchange_declare(exchange='logs', exchange_type='fanout')
-
-result = channel.queue_declare(queue='logs', exclusive=False)
-queue_name = result.method.queue
-
-channel.queue_bind(exchange='logs', queue=queue_name)
-channel.basic_qos(prefetch_count=1)
-
-def callback(ch, method, properties, body):
-    logger.info(
-        "New Message consumed",
-        extra={"messageReceveid":body}
-    )
-    print(" [x] %r" % body)
-    time.sleep(4)
-    channel.basic_ack(delivery_tag=method.delivery_tag)
-
-channel.basic_consume(
-    queue=queue_name, on_message_callback=callback, auto_ack=False)
-
-channel.start_consuming()
+if __name__ == "__main__":
+    try:
+        rabbitmq_service.connect()
+        rabbitmq_service.start_consuming(callback_func=message_callback)
+    except KeyboardInterrupt:
+        logger.info("Shutdown requested. Closing connection...")
+        rabbitmq_service.close()
+        sys.exit(0)
