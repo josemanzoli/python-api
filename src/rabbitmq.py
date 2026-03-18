@@ -1,5 +1,6 @@
 import os
 import pika
+import json
 import pybreaker
 from typing import Any
 from .logger import setup_logger
@@ -119,7 +120,7 @@ class RabbitMQService:
         self.channel.basic_publish(
             exchange=self.pubsub_exchange,
             routing_key='',
-            body=str(message)
+            body=json.dumps(message)
         )
 
     def publish_task(self, message: Any) -> None:
@@ -134,7 +135,7 @@ class RabbitMQService:
         self.channel.basic_publish(
             exchange=self.workqueue_exchange,
             routing_key=self.workqueue_queue,
-            body=str(message),
+            body=json.dumps(message),
             properties=pika.BasicProperties(delivery_mode=2)  # durable
         )
 
