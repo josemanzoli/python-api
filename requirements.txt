@@ -1,0 +1,4 @@
+flask==3.1.3
+pika==1.3.2
+prometheus_client==0.24.1
+logging_json==0.6.0
