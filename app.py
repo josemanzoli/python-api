@@ -4,7 +4,7 @@ from flask import Flask, request, jsonify, Response
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, Counter
 from src.logger import setup_logger
 from src.rabbitmq import rabbitmq_service
-from src.database import init_db, get_all_messages, get_message_by_correlation_id
+from src.database import init_db, get_all_messages, get_message_by_correlation_id, check_db_connection
 from src.tracing import init_tracing
 
 # Define as métricas
@@ -34,19 +34,20 @@ def create_app() -> Flask:
     def readiness():
         REQUEST_COUNT.labels(method='GET', endpoint='/health/ready').inc()
         cb_state = rabbitmq_service.circuit_state()
-        if rabbitmq_service.is_connected():
-            return jsonify({
-                "status": "UP",
-                "dependencies": {"rabbitmq": "UP"},
-                "circuit_breaker": cb_state
-            }), 200
-        else:
-            logger.error("Readiness check failed: RabbitMQ disconnected")
-            return jsonify({
-                "status": "DOWN",
-                "dependencies": {"rabbitmq": "DOWN"},
-                "circuit_breaker": cb_state
-            }), 503
+        rabbitmq_up = rabbitmq_service.is_connected()
+        database_up = check_db_connection()
+
+        status_code = 200 if (rabbitmq_up and database_up) else 503
+        status_msg = "UP" if status_code == 200 else "DOWN"
+
+        return jsonify({
+            "status": status_msg,
+            "dependencies": {
+                "rabbitmq": "UP" if rabbitmq_up else "DOWN",
+                "postgres": "UP" if database_up else "DOWN"
+            },
+            "circuit_breaker": cb_state
+        }), status_code
 
     @app.post("/message")
     def send_message():

@@ -67,3 +67,13 @@ def get_message_by_correlation_id(correlation_id: str) -> dict | None:
     with SessionLocal() as session:
         msg = session.query(Message).filter(Message.correlation_id == correlation_id).first()
         return msg.to_dict() if msg else None
+
+
+def check_db_connection() -> bool:
+    """Verifica se a conexão com o banco está ativa."""
+    try:
+        with SessionLocal() as session:
+            session.execute(text("SELECT 1"))
+            return True
+    except Exception:
+        return False
