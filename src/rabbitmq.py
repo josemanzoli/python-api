@@ -11,7 +11,9 @@ class RabbitMQService:
         self.password = os.getenv("RABBITMQ_PASSWORD", "passw123")
         self.host = os.getenv("RABBITMQ_HOST", "rabbitmq")
         self.exchange = 'logs'
-        self.queue_name = 'logs'
+        self.queue_name = 'logs_queue' # Nomeado para clareza
+        self.dlx_exchange = 'logs_dlx'
+        self.dlq_name = 'logs_dlq'
         self.connection = None
         self.channel = None
 
@@ -25,10 +27,22 @@ class RabbitMQService:
                 )
                 self.channel = self.connection.channel()
                 
-                # Setup Topologia apenas uma vez
+                # 1. Setup da Dead Letter Queue (DLQ)
+                self.channel.exchange_declare(exchange=self.dlx_exchange, exchange_type='direct')
+                self.channel.queue_declare(queue=self.dlq_name, durable=True)
+                self.channel.queue_bind(exchange=self.dlx_exchange, queue=self.dlq_name, routing_key='dead_letter')
+
+                # 2. Setup da Fila Principal ligada à DLQ
                 self.channel.exchange_declare(exchange=self.exchange, exchange_type='fanout')
-                result = self.channel.queue_declare(queue=self.queue_name, exclusive=False)
-                self.queue_name = result.method.queue # Garante usar o queue correto
+                result = self.channel.queue_declare(
+                    queue=self.queue_name, 
+                    durable=True,
+                    arguments={
+                        'x-dead-letter-exchange': self.dlx_exchange,
+                        'x-dead-letter-routing-key': 'dead_letter'
+                    }
+                )
+                self.queue_name = result.method.queue
                 self.channel.queue_bind(exchange=self.exchange, queue=self.queue_name)
                 
                 logger.info("Successfully connected to RabbitMQ and setup topologies.")
@@ -61,6 +75,11 @@ class RabbitMQService:
         
         logger.info("[*] Waiting for messages. To exit press CTRL+C")
         self.channel.start_consuming()
+
+    def is_connected(self) -> bool:
+        """Verifica se a conexão com o RabbitMQ está ativa."""
+        return self.connection is not None and self.connection.is_open and \
+               self.channel is not None and self.channel.is_open
 
     def close(self):
         """Encerra a conexão limpidamente."""

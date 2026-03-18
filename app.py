@@ -15,11 +15,19 @@ def create_app() -> Flask:
     # Inicializar o rabbitmq apenas na inicialização do app web
     rabbitmq_service.connect()
 
-    @app.get("/health")
-    def health_check():
-        REQUEST_COUNT.labels(method='GET', endpoint='/health').inc()
-        logger.info("Healthcheck executed", extra={"correlationId": str(uuid.uuid4())})
-        return jsonify({"message": "I'm alive"}), 200
+    @app.get("/health/live")
+    def liveness():
+        REQUEST_COUNT.labels(method='GET', endpoint='/health/live').inc()
+        return jsonify({"status": "UP"}), 200
+
+    @app.get("/health/ready")
+    def readiness():
+        REQUEST_COUNT.labels(method='GET', endpoint='/health/ready').inc()
+        if rabbitmq_service.is_connected():
+            return jsonify({"status": "UP", "dependencies": {"rabbitmq": "UP"}}), 200
+        else:
+            logger.error("Readiness check failed: RabbitMQ disconnected")
+            return jsonify({"status": "DOWN", "dependencies": {"rabbitmq": "DOWN"}}), 503
 
     @app.post("/message")
     def send_message():
