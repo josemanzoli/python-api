@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"name": "Observability Infrastructure (Logs-with-Loki)",
+			"path": "../logs-with-loki"
+		},
+		{
+			"name": "Python API & Microservices",
+			"path": "."
+		}
+	],
+	"settings": {}
+}
