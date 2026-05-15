@@ -2,6 +2,7 @@ import os
 import pika
 import json
 import pybreaker
+from opentelemetry import propagate
 from typing import Any
 from .logger import setup_logger
 
@@ -116,18 +117,26 @@ class RabbitMQService:
                 logger.error(f"Failed to connect to RabbitMQ: {str(e)}")
                 raise
 
-    def publish(self, message: Any) -> None:
+    def publish(self, message: Any, correlation_id: str = None) -> None:
         """Publica no exchange Pub/Sub (fanout) — todos os consumers recebem."""
         if not self.channel or self.channel.is_closed:
             self.connect()
 
+        # Nível 2: Injeta o contexto de tracing do OTel nos headers (W3C Trace Context)
+        headers = {}
+        propagate.inject(headers)
+
         self.channel.basic_publish(
             exchange=self.pubsub_exchange,
             routing_key='',
-            body=json.dumps(message)
+            body=json.dumps(message),
+            properties=pika.BasicProperties(
+                correlation_id=correlation_id,
+                headers=headers
+            )
         )
 
-    def publish_task(self, message: Any) -> None:
+    def publish_task(self, message: Any, correlation_id: str = None) -> None:
         """Publica no exchange Work Queue (direct) — apenas 1 consumer processa.
         
         Diferença chave do Pub/Sub: cada mensagem é processada exatamente
@@ -136,11 +145,19 @@ class RabbitMQService:
         if not self.channel or self.channel.is_closed:
             self.connect()
 
+        # Nível 2: Injeta o contexto de tracing do OTel nos headers (W3C Trace Context)
+        headers = {}
+        propagate.inject(headers)
+
         self.channel.basic_publish(
             exchange=self.workqueue_exchange,
             routing_key=self.workqueue_queue,
             body=json.dumps(message),
-            properties=pika.BasicProperties(delivery_mode=2)  # durable
+            properties=pika.BasicProperties(
+                delivery_mode=2,  # durable
+                correlation_id=correlation_id,
+                headers=headers
+            )
         )
 
     def start_consuming(self, callback_func) -> None:

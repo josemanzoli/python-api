@@ -41,6 +41,10 @@ def init_tracing(service_name: str, app=None):
         # Instrumentação automática do Flask
         FlaskInstrumentor().instrument_app(app)
 
+    # Instrumentação do SQLAlchemy (Banco de Dados)
+    from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+    SQLAlchemyInstrumentor().instrument()
+
     _tracer_initialized = True
 
 

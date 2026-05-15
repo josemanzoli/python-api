@@ -3,12 +3,18 @@ import time
 import json
 import random
 import sys
+from opentelemetry import propagate
+from prometheus_client import start_http_server, Counter
 from src.logger import setup_logger
 from src.rabbitmq import rabbitmq_service
 from src.database import save_message
 from src.tracing import init_tracing, get_tracer
 
 logger = setup_logger("consumer-logger")
+
+# Métricas Prometheus
+MESSAGES_PROCESSED = Counter('messages_processed_total', 'Total de mensagens processadas com sucesso pelo consumer')
+PROCESSING_ERRORS = Counter('messages_processing_errors_total', 'Total de erros durante o processamento')
 
 # Inicializa o tracing para o worker
 init_tracing("consumer-worker")
@@ -20,7 +26,7 @@ processed_messages = set()
 
 # ─── Retry Config ─────────────────────────────────────────────────────────────
 MAX_RETRIES = 3          # Máximo de tentativas antes de ir para a DLQ
-INITIAL_RETRY_DELAY = 1  # Segundos — vai dobrar a cada tentativa (1s → 2s → 4s)
+INITIAL_RETRY_DELAY = 0.5  # Segundos — vai dobrar a cada tentativa (0.5s → 1s → 2s)
 
 
 def process_message(message_data: dict) -> None:
@@ -32,23 +38,25 @@ def process_message(message_data: dict) -> None:
         # Simula processamento (2s de trabalho)
         time.sleep(2)
 
-        # Simula falha esporádica (20%) — demonstra o caminho da DLQ na aula
-        if random.random() < 0.2:
+        # Simula falha esporádica (50%) — demonstra o caminho da DLQ na aula
+        if random.random() < 0.5:
             span.record_exception(ValueError("Random failure"))
             raise ValueError("Simulated processing failure — demonstrating DLQ path!")
 
 
 def message_callback(ch, method, properties, body):
-    """Callback com idempotência e retry com backoff exponencial."""
-    # Como o RabbitMQ não propaga automaticamente o contexto do OTel no Pika sem
-    # instrumentação manual pesada nos headers, vamos criar um novo trace aqui
-    # mas logar o correlationId para o Grafana linkar com o trace do API.
+    """Callback com extração de contexto W3C (Nível 2) e idempotência."""
     
-    with tracer.start_as_current_span("rabbitmq_consume") as span:
+    # Nível 2: Extrai o contexto de tracing dos headers da mensagem
+    context = propagate.extract(properties.headers or {})
+    
+    with tracer.start_as_current_span("rabbitmq_consume", context=context) as span:
         try:
             decoded_body = body.decode('utf-8')
             message_data = json.loads(decoded_body)
-            correlation_id = message_data.get("correlationId")
+            
+            # Prioriza o ID das propriedades AMQP (Nível 1), fallback para o body
+            correlation_id = properties.correlation_id or message_data.get("correlationId")
             
             span.set_attribute("messaging.correlation_id", correlation_id or "unknown")
 
@@ -81,6 +89,7 @@ def message_callback(ch, method, properties, body):
                         message_number=message_data.get("messageNumber", 0)
                     )
                     processed_messages.add(correlation_id)
+                    MESSAGES_PROCESSED.inc()
                     ch.basic_ack(delivery_tag=method.delivery_tag)
                     logger.info(
                         "Message processed and persisted to DB.",
@@ -97,6 +106,7 @@ def message_callback(ch, method, properties, body):
                             f"Message failed after {MAX_RETRIES} retries. Sending to DLQ.",
                             extra={"correlationId": correlation_id, "error": str(process_error)}
                         )
+                        PROCESSING_ERRORS.inc()
                         ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
                         return
 
@@ -120,6 +130,10 @@ def message_callback(ch, method, properties, body):
 
 if __name__ == "__main__":
     try:
+        # Inicia o servidor de métricas na porta 8000
+        start_http_server(8000)
+        logger.info("Prometheus metrics server started on port 8000")
+
         rabbitmq_service.connect()
         rabbitmq_service.start_consuming(callback_func=message_callback)
     except KeyboardInterrupt:

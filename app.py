@@ -1,5 +1,6 @@
 import uuid
 import pybreaker
+from opentelemetry import trace
 from flask import Flask, request, jsonify, Response
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, Counter
 from src.logger import setup_logger
@@ -55,6 +56,10 @@ def create_app() -> Flask:
         request_data = request.get_json()
         correlation_id = str(uuid.uuid4())
         
+        # Nível 3: Associa o ID de Negócio ao Span Técnico
+        current_span = trace.get_current_span()
+        current_span.set_attribute("messaging.correlation_id", correlation_id)
+        
         new_message = {
             "name": request_data.get("name", "Unknown"),
             "messageNumber": request_data.get("messageNumber", 0),
@@ -67,7 +72,7 @@ def create_app() -> Flask:
         )
 
         try:
-            rabbitmq_service.publish(new_message)
+            rabbitmq_service.publish(new_message, correlation_id=correlation_id)
             MESSAGE_PUBLISHED.inc()
             logger.info(
                 "Message published to Pub/Sub exchange (fanout)",
@@ -92,6 +97,10 @@ def create_app() -> Flask:
         request_data = request.get_json()
         correlation_id = str(uuid.uuid4())
 
+        # Nível 3: Associa o ID de Negócio ao Span Técnico
+        current_span = trace.get_current_span()
+        current_span.set_attribute("messaging.correlation_id", correlation_id)
+
         new_task = {
             "name": request_data.get("name", "Unknown"),
             "taskNumber": request_data.get("taskNumber", 0),
@@ -104,7 +113,7 @@ def create_app() -> Flask:
         )
 
         try:
-            rabbitmq_service.publish_task(new_task)
+            rabbitmq_service.publish_task(new_task, correlation_id=correlation_id)
             TASK_PUBLISHED.inc()
             logger.info(
                 "Task published to Work Queue (direct exchange)",

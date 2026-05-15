@@ -11,5 +11,6 @@ opentelemetry-instrumentation==0.51b0
 opentelemetry-instrumentation-flask==0.51b0
 opentelemetry-exporter-otlp-proto-grpc==1.30.0
 opentelemetry-instrumentation-wsgi==0.51b0
+opentelemetry-instrumentation-sqlalchemy==0.51b0
 
 
