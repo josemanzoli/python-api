@@ -53,7 +53,11 @@ class RabbitMQService:
                 )
                 self.connection = pika.BlockingConnection(
                     pika.ConnectionParameters(
-                        host=self.host, port=5672, credentials=credentials
+                        host=self.host, 
+                        port=5672, 
+                        credentials=credentials,
+                        heartbeat=600,           # Aumenta para 10 min p/ evitar quedas em dev/Docker
+                        blocked_connection_timeout=300
                     )
                 )
                 self.channel = self.connection.channel()
