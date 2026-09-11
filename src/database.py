@@ -24,6 +24,7 @@ class Message(Base):
     correlation_id = Column(String, unique=True, index=True, nullable=False)
     name = Column(String, nullable=False)
     message_number = Column(Integer, nullable=False)
+    processing_time_ms = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     def to_dict(self):
@@ -32,6 +33,7 @@ class Message(Base):
             "correlationId": self.correlation_id,
             "name": self.name,
             "messageNumber": self.message_number,
+            "processingTimeMs": self.processing_time_ms,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
         }
 
@@ -42,13 +44,14 @@ def init_db():
     Base.metadata.create_all(bind=engine)
 
 
-def save_message(correlation_id: str, name: str, message_number: int) -> Message:
+def save_message(correlation_id: str, name: str, message_number: int, processing_time_ms: int = None) -> Message:
     """Persiste uma mensagem processada no banco."""
     with SessionLocal() as session:
         msg = Message(
             correlation_id=correlation_id,
             name=name,
             message_number=message_number,
+            processing_time_ms=processing_time_ms
         )
         session.add(msg)
         session.commit()

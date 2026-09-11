@@ -47,6 +47,8 @@ def process_message(message_data: dict) -> None:
 def message_callback(ch, method, properties, body):
     """Callback com extração de contexto W3C (Nível 2) e idempotência."""
     
+    start_time = time.time()
+    
     # Nível 2: Extrai o contexto de tracing dos headers da mensagem
     context = propagate.extract(properties.headers or {})
     
@@ -82,11 +84,15 @@ def message_callback(ch, method, properties, body):
                 try:
                     process_message(message_data)
 
+                    # Calcula a duração total do processamento
+                    elapsed_ms = int((time.time() - start_time) * 1000)
+
                     # Sucesso — salva no banco e no cache de idempotência, depois confirma
                     save_message(
                         correlation_id=correlation_id,
                         name=message_data.get("name", "unknown"),
-                        message_number=message_data.get("messageNumber", 0)
+                        message_number=message_data.get("messageNumber", 0),
+                        processing_time_ms=elapsed_ms
                     )
                     processed_messages.add(correlation_id)
                     MESSAGES_PROCESSED.inc()
